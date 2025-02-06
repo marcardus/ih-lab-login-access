@@ -5,18 +5,43 @@ const createError = require("http-errors");
 module.exports.create = (req, res, next) => {
   const { email, password } = req.body;
 
-  // 1. find user by email
-  // 2. check password
-  // 3. create session
-  // 4. send session id in a cookie
+  User.findOne({ email })
+    .then((user) => {
+      if (!user) {
+        return next(createError(401, "Bad credentials (user not found)"));
+      }
 
-  res.header("Set-Cookie", "session_id=12345");
+      user.checkPassword(password)
+        .then((match) => {
+          if (!match) {
+            return next(createError(401, "Bad credentials (wrong password)"));
+          }
 
-  res.json({ message: "TO DO!" });
+          Session.create({ user: user.id })
+            .then((session) => {
+              res.setHeader(
+                "Set-Cookie",
+                `session=${session.id}; HttpOnly; ${process.env.NODE_ENV === "production" ? "Secure;" : ""}`
+              );
+
+              res.json(user);
+            })
+            .catch(next);
+        })
+        .catch(next);
+    })
+    .catch(next);
 };
 
 module.exports.destroy = (req, res, next) => {
-  // access current request session. remove and send 204 status
+  if (!req.session || !req.session.id) {
+    return next(createError(400, "No active session found"));
+  }
 
-  res.status(204).send();
+  Session.findByIdAndDelete(req.session.id)
+    .then(() => {
+      res.setHeader("Set-Cookie", "session=; HttpOnly; Max-Age=0"); // Expira la cookie
+      res.status(204).send();
+    })
+    .catch(next);
 };
